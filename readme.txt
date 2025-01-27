@@ -1,3 +1,9 @@
+## Update by Mohamed Fathalla
+This project updates the original open source code to include the effect of delayed transmission of power at gear shifts. The model introduces a simple
+yet effective method to perform the simulation withiout the need to solve differnatial equations using numerical methods. 
+
+------------------------------------------------------------------------------------------------------------------------
+
 _______                    _____________________     ________             ________           _____ 
 __  __ \______________________  /___    |__  __ \    ___  __ \__________________(_)____________  /_
 _  / / /__  __ \  _ \_  __ \_  / __  /| |_  /_/ /    __  /_/ /_  ___/  __ \____  /_  _ \  ___/  __/
