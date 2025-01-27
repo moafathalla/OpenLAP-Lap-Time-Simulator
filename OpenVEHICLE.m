@@ -39,8 +39,8 @@ fclose('all') ;
 
 %% Vehicle file selection
 
-filename = 'Formula 1.xlsx' ;
-
+% filename = 'Formula 1.xlsx' ; 
+filename = 'Formula 1 _ v 2.0 .xlsx' ; 
 %% Reading vehicle file
 
 info = read_info(filename,'Info') ;
@@ -186,6 +186,45 @@ for i=1:length(vehicle_speed)
     % getting maximum tractive force and gear
     [fx_engine(i),gear(i)] = max(fx(i,:)) ;
 end
+
+% Approximate gear-shift torque ramp parameters
+speedRangeRamp = 0.1;   % [m/s of speed] over which torque ramps from 0 to normal
+                      % (tweak this for a shorter or longer torque penalty)
+
+% Make a copy of fx_engine before ramp
+fx_engine_nominal = fx_engine;
+
+% Loop over each speed point, detect gear change, then ramp torque
+for i = 2:length(vehicle_speed)
+    if gear(i) ~= gear(i-1)
+        % We have a gear change at index i
+        % We'll ramp the torque to zero at i, then ramp up to full
+        % over the next 'speedRangeRamp' m/s.
+        
+        % The speed at which shift occurs
+        shiftSpeed = vehicle_speed(i);
+        
+        % For subsequent points, reduce torque proportionally
+        for k = i:length(vehicle_speed)
+            dspeed = vehicle_speed(k) - shiftSpeed;  % how far we've gone in speed after shift
+            if dspeed >= 0 && dspeed <= speedRangeRamp
+                % ramp factor from 0 at dspeed=0 to 1 at dspeed=speedRangeRamp
+                rampFactor = dspeed / speedRangeRamp;
+                % fx_engine(k) = rampFactor * fx_engine_nominal(k);
+                % try a partial cut:
+                baseFraction = 0.6; % never go below 60% torque
+                fx_engine(k) = baseFraction * fx_engine_nominal(k) + ...
+               rampFactor * (1 - baseFraction) * fx_engine_nominal(k);
+            elseif dspeed > speedRangeRamp
+                % once beyond the ramp window, no penalty
+                break;
+            else
+                % if dspeed < 0 for some reason, do nothing
+            end
+        end
+    end
+end
+
 % adding values for 0 speed to vectors for interpolation purposes at low speeds
 vehicle_speed = [0;vehicle_speed] ;
 gear = [gear(1);gear] ;
