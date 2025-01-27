@@ -1,0 +1,88 @@
+
+1. Project Background
+OpenLAP is a quasi-static (point-mass) lap simulation tool that Reads a vehicle model from OpenVEHICLE 
+(e.g., engine curves, aero data, gear ratios). It Reads a track model from OpenTRACK (corner radii, banking, etc.). 
+It Computes cornering-limited speeds, merges acceleration/deceleration solutions, and produces a predicted lap time.
+The core code picks the maximum possible acceleration or deceleration at each track segment, subject to aerodynamic drag, rolling resistance, and friction-circle limits. 
+However, it originally did not account for transient gear-shift effects or torque spool-up—it assumed an instantaneous optimal gear at every speed.
+________________________________________
+2. Objectives and Changes
+We aimed to make the simulation more realistic by introducing:
+1.	Gear-Shift Penalties
+      A short period (in speed or time) after each gear change where torque is reduced (or zero) to mimic real-world shifting delays.
+2.	Torque Ramp-Up
+      After a gear shift, the engine torque should gradually recover from low/zero to full, rather than instantly reappearing at 100%.
+3.	Minimal Impact on Existing Workflow
+      Avoid rewriting the entire simulation as a full time-based ODE. Instead, we introduced an approximate “ramp penalty” in the speed-based code for a quick fix.
+________________________________________
+3. Implementing a Quasi-Static Gear-Shift Penalty
+3.1. Location of Modification
+•	In OpenVEHICLE (the vehicle-creation script), we generate a vehicle_speed array and a corresponding fx_engine (tractive force) array for each speed.
+•	After identifying the best gear at each speed, we introduced a post-processing loop that checks for gear changes (gear(i) ~= gear(i-1)) and imposes a torque ramp in subsequent speeds.
+3.2. Code Snippet Highlights
+matlab
+CopyEdit
+% Example: Post-processing in OpenVEHICLE after gear selection
+speedRangeRamp = 2;  % small range (m/s) for torque ramp
+fx_engine_nominal = fx_engine;
+
+for i = 2:length(vehicle_speed)
+    if gear(i) ~= gear(i-1)
+        shiftSpeed = vehicle_speed(i);
+        % For speeds from shiftSpeed to shiftSpeed + speedRangeRamp
+        for k = i:length(vehicle_speed)
+            dspeed = vehicle_speed(k) - shiftSpeed;
+            if dspeed >= 0 && dspeed <= speedRangeRamp
+                rampFactor = dspeed / speedRangeRamp;
+                fx_engine(k) = rampFactor * fx_engine_nominal(k);
+            elseif dspeed > speedRangeRamp
+                break;
+            end
+        end
+    end
+end
+•	What It Does: Whenever a gear change is detected, fx_engine is cut to zero at that exact speed, then linearly ramps back to full over speedRangeRamp m/s.
+•	Why: This approximates the real car’s inability to produce full torque immediately after an upshift. It’s a purely speed-based penalty in an otherwise quasi-static model.
+________________________________________
+4. Issues Encountered
+4.1. Excessive Reduction of Top Speed
+Symptom: When running a full lap simulation in OpenLAP, the maximum speed was noticeably lower than before—even if we set the ramp range to a very small number (like 0.001 m/s).
+Analysis:
+1.	Distance-Based Overshoot Logic
+o	OpenLAP’s solver merges an “acceleration solution” (mode=+1) and a “deceleration solution” (mode=-1).
+o	If torque is reduced post-shift, the solver may fail to accelerate fast enough before hitting the next corner, deciding to brake sooner (“overshoot prevention” triggers).
+o	Therefore, the final speed solution ends up capped at a lower value.
+2.	Repeated Shifts
+o	If the solver picks multiple gear changes at borderline speeds, repeated ramp penalties starve acceleration.
+3.	Corner Proximity
+o	On short straights, small torque penalties can still prevent the car from ever reaching old top speeds before it must brake for the next corner.
+4.2. Mismatch with Straight-Line Tests
+Symptom: A single, very long straight did still reach the old top speed, meaning the penalty logic is correct in principle but interacts with track corners.
+Root Cause: The single straight has enough distance to overcome the brief torque cut. On a real track with corners and repeated gear changes, the solver “prefers” not to accelerate too far because it can’t brake quickly enough if speed gets too high.
+________________________________________
+5. Fixes and Refinements
+1.	Reduce/Adjust Penalty
+o	Instead of ramping from 0% to 100% torque, ramp from, say, 50% to 100% so the engine never fully cuts out.
+o	Shorten the penalty range or exclude top-gear shifts if they rarely happen in short straights.
+2.	Partial Hysteresis on Gear Selection
+o	Prevent the solver from toggling gears up/down around a narrow speed region, thereby avoiding repeated ramp triggers.
+3.	Loosening Overshoot Logic
+o	Temporarily allowed a slight overshoot in corner speeds so the solver wouldn’t brake prematurely. This is optional depending on how conservative the corner speed constraints are.
+4.	Time-Based Simulation (Future)
+o	For the most accurate transient modeling, a step-based or ODE-based approach is recommended. However, we stuck to the quasi-static approach for minimal code disruption.
+________________________________________
+6. Summary of Contributions
+1.	Added a Gear-Shift Penalty Snippet
+o	Post-processing in OpenVEHICLE: gear detection + ramped torque cut in fx_engine.
+2.	Investigated the “Lost Top Speed” Problem
+o	Determined that overshoot logic + repeated short straights cause the code to adopt lower speeds.
+o	Verified with a single long straight that top speed can still be reached.
+3.	Proposed Tweaks
+o	Partial torque cut, smaller ramp window, or gear hysteresis to reduce unintended side effects.
+o	If deeper accuracy is required, migrating to a time-based simulation loop or a more advanced friction model is the recommended next step.
+________________________________________
+7. High-Level Takeaways
+•	Quasi-Static Tools (like OpenLAP) can be extended with basic shift or turbo penalties, but the results may deviate significantly from real data if the straights are short or if repeated gear changes occur.
+•	Small, localized “penalty” code changes can effectively show a driver or engineer how shifts reduce acceleration.
+•	A fully correct representation of shift-time or spool-lag generally requires a dynamic (time-stepped or distance-stepped with state) simulation, where you can directly control torque vs. time.
+
