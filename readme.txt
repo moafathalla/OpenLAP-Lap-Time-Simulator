@@ -50,6 +50,8 @@ Instructions:
 2) Run the script.
 3) The results will appear on the command window and inside the folder
    "OpenVEHICLE Vehicles".
+** A new and improved transmission shift model is added to this project. wile still relying on a quasi-steady solution, 
+a method was developed to account for some reduction in the power delievered throught the vehicle transmission. please refer to lines 190-226 for the update. 
 ___________________________________________________________________________________________________
 OpenTRACK:
 Track model file creation for use in OpenLAP.
